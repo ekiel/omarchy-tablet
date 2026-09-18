@@ -1,0 +1,177 @@
+from types import SimpleNamespace
+import copy
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from install import install, restore
+from tablet import Backend, physical_keyboard_present, tablet_mode
+
+
+def device(name, path="/devices/pci/usb1/input1", handlers="kbd event1"):
+    return f'N: Name="{name}"\nS: Sysfs={path}\nH: Handlers={handlers}\n'
+
+
+class DetectionTests(unittest.TestCase):
+    def test_cover_attach_detach_with_virtual_devices_remaining(self):
+        virtual = device("Murmure virtual keyboard", "/devices/virtual/input/input2")
+        buttons = device("Surface Pro 3/4 Buttons")
+        base = virtual + "\n" + buttons
+        self.assertFalse(physical_keyboard_present(base))
+        self.assertTrue(physical_keyboard_present(base + "\n" + device("Microsoft Surface Type Cover Keyboard")))
+
+    def test_usb_keyboard_and_touchpad_are_distinct(self):
+        self.assertTrue(physical_keyboard_present(device("USB Keyboard")))
+        self.assertFalse(physical_keyboard_present(device("Type Cover Touchpad", handlers="mouse0 event2")))
+
+    def test_key_capabilities_detect_a_keyboard_without_keyboard_in_name(self):
+        mask = sum(1 << code for code in (28, 30, 44, 57))
+        self.assertTrue(physical_keyboard_present(device("Logitech K380") + f"B: KEY={mask:x}\n"))
+        self.assertFalse(physical_keyboard_present(device("Fake Keyboard Consumer") + "B: KEY=100\n"))
+
+    def test_modes(self):
+        self.assertFalse(tablet_mode("auto", True))
+        self.assertTrue(tablet_mode("auto", False))
+        self.assertTrue(tablet_mode("tablet", True))
+        self.assertFalse(tablet_mode("desktop", False))
+
+
+class PersistenceTests(unittest.TestCase):
+    def test_update_and_restore_preserve_unrelated_settings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            config_dir = root / "config"
+            state_dir = root / "state"
+            config_file = config_dir / "omarchy/shell.json"
+            config_file.parent.mkdir(parents=True)
+            original = {"version": 1, "idle": {"lock": 300}, "plugins": [{"id": "other.plugin"}], "bar": {"position": "right", "layout": {"left": [{"id": "omarchy.menu"}]}}}
+            config_file.write_text(json.dumps(original))
+            source = Path(__file__).resolve().parents[1]
+            install(config_dir, state_dir, source, activate=False)
+            install(config_dir, state_dir, source, activate=False)
+            changed = json.loads(config_file.read_text())
+            changed["idle"]["lock"] = 600
+            config_file.write_text(json.dumps(changed))
+            restore(config_dir, state_dir, activate=False)
+            result = json.loads(config_file.read_text())
+            self.assertEqual(result["bar"], original["bar"])
+            self.assertEqual(result["idle"]["lock"], 600)
+            self.assertEqual(result["plugins"], original["plugins"])
+
+    def test_restore_does_not_replace_a_newly_selected_bar(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            f = root / "omarchy/shell.json"
+            f.parent.mkdir()
+            config = {"version": 1, "bar": {"id": "another.bar"}, "plugins": []}
+            f.write_text(json.dumps(config))
+            restore(root, root, activate=False)
+            self.assertEqual(json.loads(f.read_text()), config)
+
+    def test_invalid_mode_does_not_write_preferences(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict("os.environ", {"XDG_RUNTIME_DIR": folder}):
+            backend = Backend(Path(folder) / "state")
+            with self.assertRaises(ValueError):
+                backend.command({"action": "mode", "value": "invalid"})
+            self.assertFalse(backend.preferences_path.exists())
+
+    def test_favorites_with_spaces_round_trip(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict("os.environ", {"XDG_RUNTIME_DIR": folder}):
+            backend = Backend(Path(folder) / "state")
+            backend.command({"action": "favorite", "value": "Google Photos"})
+            again = Backend(Path(folder) / "state")
+            self.assertIn("Google Photos", again.preferences["favorites"])
+            again.command({"action": "favorite", "value": "Google Photos"})
+            self.assertNotIn("Google Photos", again.preferences["favorites"])
+
+    def test_failed_keyboard_start_restores_input_method(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict("os.environ", {"XDG_RUNTIME_DIR": folder}):
+            backend = Backend(Path(folder) / "state")
+            calls = []
+            def fake_run(*args, **kwargs):
+                calls.append(args)
+                if args[0] == "systemd-run":
+                    raise RuntimeError("No keyboard")
+                return SimpleNamespace(stdout="false", returncode=0)
+            with patch.object(backend, "active", side_effect=[False, True]), patch("tablet.run", side_effect=fake_run), patch("shutil.which", return_value="/usr/bin/squeekboard"):
+                with self.assertRaises(RuntimeError):
+                    backend.start_keyboard()
+            self.assertIn(("systemctl", "--user", "start", "omarchy-fcitx5.service"), calls)
+            self.assertIn(("gsettings", "set", "org.gnome.desktop.a11y.applications", "screen-keyboard-enabled", "false"), calls)
+            self.assertFalse(backend.lease.exists())
+
+class ExtendedTests(unittest.TestCase):
+    def backend(self, folder):
+        return Backend(Path(folder) / "state")
+
+    def test_layout_and_custom_dictation_survive_reload(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict("os.environ", {"XDG_RUNTIME_DIR": folder}):
+            backend = self.backend(folder)
+            backend.command({"action": "layout", "value": "tiling"})
+            backend.command({"action": "dictationCommand", "value": 'voice --language "fr CA"'})
+            again = self.backend(folder)
+            self.assertEqual(again.preferences["layout"], "tiling")
+            self.assertEqual(again.preferences["dictationCommand"], ["voice", "--language", "fr CA"])
+            with patch("tablet.subprocess.Popen") as popen:
+                again.command({"action": "dictation"})
+                self.assertEqual(popen.call_args.args[0], ["voice", "--language", "fr CA"])
+                self.assertNotIn("shell", popen.call_args.kwargs)
+
+    def test_invalid_command_and_corrupt_preferences(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict("os.environ", {"XDG_RUNTIME_DIR": folder}):
+            backend = self.backend(folder)
+            for command in ([], {"action": "layout", "value": "bad"}, {"action": "dictationCommand", "value": ""}):
+                with self.assertRaises(ValueError):
+                    backend.command(command)
+            backend.preferences_path.parent.mkdir(parents=True)
+            backend.preferences_path.write_text("not-json")
+            self.assertEqual(self.backend(folder).preferences["mode"], "auto")
+
+    def test_restore_retains_widget_edits_and_reinstall_takes_new_baseline(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg = root / "config/omarchy/shell.json"
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text(json.dumps({"version": 1, "bar": {"id": "original", "position": "bottom", "layout": {"left": []}}}))
+            source = Path(__file__).resolve().parents[1]
+            install(root / "config", root / "state", source, False)
+            changed = json.loads(cfg.read_text())
+            changed["bar"]["layout"]["left"].append({"id": "omarchy.clock"})
+            cfg.write_text(json.dumps(changed))
+            restore(root / "config", root / "state", False)
+            result = json.loads(cfg.read_text())
+            self.assertEqual(result["bar"]["id"], "original")
+            self.assertEqual(result["bar"]["layout"]["left"], [{"id": "omarchy.clock"}])
+            result["bar"]["position"] = "left"
+            cfg.write_text(json.dumps(result))
+            install(root / "config", root / "state", source, False)
+            restore(root / "config", root / "state", False)
+            self.assertEqual(json.loads(cfg.read_text())["bar"]["position"], "left")
+
+    def test_install_changes_entry_urls_when_source_changes(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg = root / "config/omarchy/shell.json"
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text('{"version": 1, "bar": {}}')
+            source = root / "source"
+            source.mkdir()
+            repo = Path(__file__).resolve().parents[1]
+            for f in [*repo.glob("*.qml"), *repo.glob("*.py"), repo / "manifest.json"]:
+                shutil.copy2(f, source / f.name)
+            manifest = root / "config/omarchy/plugins/surface.tablet/manifest.json"
+            install(root / "config", root / "state", source, False)
+            before = json.loads(manifest.read_text())["entryPoints"]["bar"]
+            with (source / "Bar.qml").open("a") as f:
+                f.write("\n// new revision\n")
+            install(root / "config", root / "state", source, False)
+            after = json.loads(manifest.read_text())["entryPoints"]["bar"]
+            self.assertNotEqual(before, after)
+            self.assertTrue((manifest.parent / after).exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

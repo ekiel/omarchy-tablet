@@ -1,0 +1,16 @@
+[
+  "Single app maximizes active internal window",
+  "Omarchy tiling restores window state",
+  "Manual on-screen keyboard show/hide",
+  "Native audio popup lifecycle",
+  "Native bluetooth popup lifecycle",
+  "Native network popup lifecycle",
+  "Native power popup lifecycle",
+  "Native clock popup lifecycle",
+  "Native monitor popup lifecycle",
+  "Native agents popup lifecycle",
+  "Configured native widgets loaded",
+  "Portrait/landscape, dark/light palette and 12/20px font captures",
+  "Plugin rescan preserves widgets and backend",
+  "Desktop mode releases keyboard service"
+]

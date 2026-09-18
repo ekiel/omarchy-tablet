@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "surface.tablet",
+  "name": "Omarchy Tablet",
+  "version": "0.2.0",
+  "author": "Charles Rivest",
+  "description": "A touch-friendly home screen, application grid and adaptive top bar for Omarchy tablets.",
+  "kinds": [
+    "bar",
+    "service",
+    "menu"
+  ],
+  "entryPoints": {
+    "bar": "Bar.qml",
+    "service": "Service.qml",
+    "menu": "Menu.qml"
+  },
+  "license": "MIT"
+}
