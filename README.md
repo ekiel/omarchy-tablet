@@ -52,13 +52,13 @@ The plugin installs no packages or hardware drivers. Touchscreen, stylus, rotati
 
 ## Install from GitHub
 
-Once this repository is public, use its **HTTPS clone URL** with Omarchy's standard installer:
+Install this public repository with Omarchy's standard installer:
 
 ```sh
-omarchy plugin add <repository-url> --enable
+omarchy plugin add https://github.com/varlet99/omarchy-tablet.git --enable
 ```
 
-Replace `<repository-url>` with this repository's URL. Review the source and dependencies before enabling. Enabling selects the replacement bar and may immediately enter Tablet mode if no physical keyboard is detected. Note the name of your previous bar if you use a custom one.
+Review the source and dependencies before enabling. Enabling selects the replacement bar and may immediately enter Tablet mode if no physical keyboard is detected. Note the name of your previous bar if you use a custom one.
 
 Update and temporarily disable:
 

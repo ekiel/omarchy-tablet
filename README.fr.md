@@ -37,10 +37,10 @@ L’interface du plugin est actuellement en anglais. La langue du clavier est in
 
 Le [README anglais](README.md#compatibility-and-dependencies) donne les dépendances et les procédures complètes. La base utilisée est Omarchy 4.0.4, Quickshell 0.3.1 et Hyprland 0.56.2. Python 3.11+ et PyGObject sont nécessaires; Squeekboard fournit le clavier et Murmure est optionnel. Les anciennes installations utilisant Waybar ne sont pas prises en charge.
 
-Une fois le dépôt public, remplacer `<url-du-depot>` par son URL GitHub :
+Installer depuis le dépôt public :
 
 ```sh
-omarchy plugin add <url-du-depot> --enable
+omarchy plugin add https://github.com/varlet99/omarchy-tablet.git --enable
 omarchy plugin update surface.tablet
 # Désactiver et revenir à la barre Omarchy :
 omarchy plugin disable surface.tablet

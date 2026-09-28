@@ -10,7 +10,7 @@ Le projet a été développé sur une **Surface Pro 4 avec le noyau linux-surfac
 
 Squeekboard fournit le clavier virtuel; Murmure ou une autre application configurable fournit la dictée. Le plugin ne remplace pas les pilotes matériels, ne gère pas lui-même la rotation automatique et ne réalise pas la reconnaissance vocale.
 
-Licence MIT. Projet communautaire en préparation pour une première publication publique. Voir le [bilan de vérification](release-readiness.md) et les [instructions de publication](marketplace.md).
+Licence MIT. Projet communautaire en préversion publique : [varlet99/omarchy-tablet](https://github.com/varlet99/omarchy-tablet). Voir le [bilan de vérification](release-readiness.md) et les [instructions de publication](marketplace.md).
 
 ## English description
 
