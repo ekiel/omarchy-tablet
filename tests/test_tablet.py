@@ -114,7 +114,7 @@ class ExtendedTests(unittest.TestCase):
             again = self.backend(folder)
             self.assertEqual(again.preferences["layout"], "tiling")
             self.assertEqual(again.preferences["dictationCommand"], ["voice", "--language", "fr CA"])
-            with patch("tablet.subprocess.Popen") as popen:
+            with patch("tablet.subprocess.Popen") as popen, patch.object(again, "start_keyboard"):
                 again.command({"action": "dictation"})
                 self.assertEqual(popen.call_args.args[0], ["voice", "--language", "fr CA"])
                 self.assertNotIn("shell", popen.call_args.kwargs)
@@ -171,6 +171,156 @@ class ExtendedTests(unittest.TestCase):
             after = json.loads(manifest.read_text())["entryPoints"]["bar"]
             self.assertNotEqual(before, after)
             self.assertTrue((manifest.parent / after).exists())
+
+
+class BackendRegressionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        env = patch.dict("os.environ", {"XDG_RUNTIME_DIR": self.temp.name})
+        env.start()
+        self.addCleanup(env.stop)
+        self.backend = Backend(Path(self.temp.name) / "state")
+
+    def test_valid_json_with_wrong_shape_is_ignored(self):
+        self.backend.preferences_path.parent.mkdir(parents=True)
+        for content in ("[]", "null", "42", '"wrong"'):
+            self.backend.preferences_path.write_text(content)
+            self.assertEqual(Backend(self.backend.state_dir).preferences["mode"], "auto")
+
+    def test_legacy_layout_command_changes_mode_consistently(self):
+        self.backend.command({"action": "layout", "value": "single"})
+        self.assertEqual(self.backend.preferences["mode"], "tablet")
+        self.backend.command({"action": "layout", "value": "tiling"})
+        self.assertEqual(self.backend.preferences["mode"], "desktop")
+
+    def test_title_churn_does_not_reconcile_unchanged_focus(self):
+        b = self.backend
+        self.assertTrue(b.layout_event(b"activewindowv2>>abcd"))
+        for _ in range(100):
+            self.assertFalse(b.layout_event(b"activewindowv2>>abcd"))
+            self.assertFalse(b.layout_event(b"windowtitlev2>>abcd,changing title"))
+        self.assertTrue(b.layout_event(b"activewindowv2>>dcba"))
+        self.assertTrue(b.layout_event(b"movewindowv2>>dcba,2,2"))
+        self.assertTrue(b.layout_event(b"activewindowv2>>"))
+
+    def test_idle_reconcile_does_not_query_windows(self):
+        b = self.backend
+        state = {"tablet": False, "keyboardAvailable": False}
+        b.next_style_check = float("inf")
+        with patch.object(b, "state", return_value=state), patch.object(b.layout, "reconcile") as layout:
+            b.reconcile()
+            for _ in range(10):
+                b.reconcile()
+            layout.assert_called_once_with(False)
+            b.layout_dirty = True
+            b.reconcile()
+            self.assertEqual(layout.call_count, 2)
+
+    def test_layout_failure_keeps_dirty_flag(self):
+        b = self.backend
+        with patch.object(b, "state", return_value={"tablet": False, "keyboardAvailable": False}), \
+             patch.object(b.layout, "reconcile", side_effect=RuntimeError("busy")):
+            with self.assertRaises(RuntimeError):
+                b.reconcile()
+            self.assertTrue(b.layout_dirty)
+
+    def test_dictation_keeps_keyboard_and_explicit_hide_releases_it(self):
+        b = self.backend
+        b.preferences["keyboardActivation"] = "manual"
+        b.manual_keyboard = True
+        b.keyboard_started = True
+        b.layout_dirty = False
+        b.next_keyboard_check = b.next_style_check = float("inf")
+        with patch("tablet.shutil.which", return_value="/usr/bin/squeekboard"), \
+             patch("tablet.subprocess.Popen") as popen, patch.object(b, "start_keyboard"), \
+             patch.object(b, "state", return_value={"tablet": True, "keyboardAvailable": True}), \
+             patch.object(b, "visible", return_value=False), patch.object(b, "show_keyboard") as show, \
+             patch.object(b, "restore_keyboard", side_effect=lambda: setattr(b, "keyboard_started", False)) as stop:
+            b.command({"action": "dictation"})
+            self.assertTrue(b.keep_keyboard_open)
+            self.assertEqual(popen.call_args.args[0], ["murmure", "--transcription", "--hidden"])
+            b.keyboard_css_applied = b.keyboard_theme.prepare(b.preferences["keyboardStyle"])
+            b.reconcile()
+            show.assert_called_with(True)
+            b.command({"action": "hideKeyboard"})
+            self.assertFalse(b.keep_keyboard_open)
+            self.assertFalse(b.manual_keyboard)
+            stop.assert_called_once()
+            show.assert_called_with(False)
+            show.reset_mock()
+            b.reconcile()
+            show.assert_not_called()
+
+    def test_tablet_focus_events_do_not_start_a_hidden_keyboard(self):
+        b = self.backend
+        b.preferences["keyboardActivation"] = "manual"
+        b.next_style_check = float("inf")
+        with patch.object(b, "state", return_value={"tablet": True, "keyboardAvailable": True}), \
+             patch.object(b.layout, "reconcile"), patch.object(b, "start_keyboard") as start:
+            for event in (b"activewindowv2>>first", b"activewindowv2>>second", b"activewindowv2>>first"):
+                b.layout_dirty = b.layout_event(event)
+                b.reconcile()
+            start.assert_not_called()
+
+    def test_dictation_does_not_reopen_dismissed_keyboard(self):
+        b = self.backend
+        with patch("tablet.subprocess.Popen"), patch.object(b, "start_keyboard") as start:
+            b.command({"action": "hideKeyboard"})
+            b.command({"action": "dictation"})
+            start.assert_not_called()
+            self.assertFalse(b.manual_keyboard)
+            self.assertFalse(b.keep_keyboard_open)
+
+    def test_automatic_activation_keeps_service_listening_after_hide(self):
+        b = self.backend
+        b.next_keyboard_check = b.next_style_check = float("inf")
+        b.layout_dirty = False
+        with patch.object(b, "state", return_value={"tablet": True, "keyboardAvailable": True}), \
+             patch.object(b, "start_keyboard", side_effect=lambda: setattr(b, "keyboard_started", True)) as start, \
+             patch.object(b, "visible", return_value=False), patch.object(b, "show_keyboard") as show, \
+             patch.object(b, "restore_keyboard") as stop:
+            b.keyboard_css_applied = b.keyboard_theme.prepare("omarchy")
+            b.reconcile()
+            start.assert_called_once()
+            b.command({"action": "hideKeyboard"})
+            show.assert_called_with(False)
+            stop.assert_not_called()
+            b.reconcile()
+            self.assertEqual(start.call_count, 1)
+            b.command({"action": "keyboardActivation", "value": "manual"})
+            stop.assert_called_once()
+            self.assertEqual(Backend(b.state_dir).preferences["keyboardActivation"], "manual")
+
+    def test_automatic_keyboard_dismisses_stale_visibility_on_new_window(self):
+        b = self.backend
+        b.keyboard_started = True
+        b.layout_dirty = False
+        b.next_keyboard_check = b.next_style_check = float("inf")
+        b.keyboard_css_applied = b.keyboard_theme.prepare("omarchy")
+        with patch.object(b, "state", return_value={"tablet": True, "keyboardAvailable": True}), \
+             patch.object(b, "visible", return_value=True), patch.object(b, "show_keyboard") as show:
+            b.layout_event(b"activewindowv2>>new")
+            b.reconcile()
+            show.assert_called_once_with(False)
+            b.layout_event(b"activewindowv2>>new")
+            b.reconcile()
+            self.assertEqual(show.call_count, 1)
+
+    def test_dictation_visibility_guard_expires(self):
+        b = self.backend
+        b.keep_keyboard_open = True
+        b.keep_keyboard_until = 0
+        b.next_style_check = float("inf")
+        b.layout_dirty = False
+        with patch.object(b, "state", return_value={"tablet": False, "keyboardAvailable": False}):
+            b.reconcile()
+        self.assertFalse(b.keep_keyboard_open)
+
+    def test_dictation_does_not_rewrite_preferences(self):
+        with patch("tablet.subprocess.Popen"), patch.object(self.backend, "start_keyboard"):
+            self.backend.command({"action": "dictation"})
+        self.assertFalse(self.backend.preferences_path.exists())
 
 
 if __name__ == "__main__":

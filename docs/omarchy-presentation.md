@@ -1,23 +1,33 @@
-# Omarchy Tablet — project introduction
+# Omarchy Tablet — présentation
 
-**A touch interface that keeps Omarchy's own widgets, themes and window manager.**
+**Une interface tactile pour Omarchy, avec retour au bureau d’un simple bouton.**
 
-Omarchy Tablet adapts the Quickshell desktop to Surface-style detachable devices. Removing a physical keyboard selects tablet mode; reconnecting selects the compact desktop. Manual overrides are always available.
+Omarchy Tablet facilite l’utilisation d’Omarchy sur une tablette ou un ordinateur à clavier détachable. Il rassemble un accueil avec favoris et recherche d’applications, un sélecteur de fenêtres, un clavier à l’écran et des raccourcis de dictée dans une interface intégrée aux thèmes et aux widgets du système.
 
-The top bar retains the configured native widgets and menus, including resource and AI quota panels. Home, Apps, Windows, the keyboard and dictation become directly accessible. Portrait layouts put secondary widgets in a More panel. A wallpaper-backed Home provides application icons, favorite editing and search.
+En mode **Tablet**, la disposition **Single app** maximise l’application active sur l’écran intégré et rend les commandes tactiles accessibles. En mode **Desktop**, le plugin restaure les états de fenêtres qu’il avait modifiés pour retrouver la disposition en mosaïque d’Omarchy. **Hyprland reste le gestionnaire de fenêtres dans les deux modes.** Le mode **Automatic** suit la présence d’un clavier physique; le bouton en haut à gauche permet une bascule manuelle.
 
-Two remembered layouts serve different tasks: Single app maximizes the active internal-display window beneath the bar; Omarchy tiling restores ordinary window management. A session recovery journal tracks the states the plugin changes. Floating dialogs and external displays remain independent.
+Le projet a été développé sur une **Surface Pro 4 avec le noyau linux-surface**. Il vise aussi les tablettes et convertibles capables de faire fonctionner une version compatible d’Omarchy, sous réserve de la prise en charge de leur matériel par Linux. La compatibilité avec d’autres modèles reste à tester.
 
-The interface consumes Omarchy's live colors, fonts, spacing and border tokens. The keyboard language is independent of the English interface. Squeekboard provides automatic input in compatible Wayland fields, and a focus-preserving microphone button invokes a configurable dictation command.
+Squeekboard fournit le clavier virtuel; Murmure ou une autre application configurable fournit la dictée. Le plugin ne remplace pas les pilotes matériels, ne gère pas lui-même la rotation automatique et ne réalise pas la reconnaissance vocale.
 
-**Integration:** user-owned full-bar/service/menu plugin; no packaged Omarchy files are modified. Installation preserves configured widgets. Restore switches back to the previous bar without resetting the desktop.
+Licence MIT. Projet communautaire en préparation pour une première publication publique. Voir le [bilan de vérification](release-readiness.md) et les [instructions de publication](marketplace.md).
 
-**License:** MIT. **Status:** working local implementation with unit tests and live Surface checks; see [validation](validation.md) for exact coverage and pending physical tests. Public repository publication is pending GitHub authentication.
+## English description
 
-![Landscape Home](screenshots/landscape-tokyo-night.png)
+Omarchy Tablet brings a touch-friendly interface to Omarchy tablets and detachable computers. Switch between a tablet layout with one maximized application and Omarchy's normal desktop tiling, manually or automatically as a physical keyboard is attached or removed. A touch launcher, favorites, window switcher, Squeekboard integration and configurable dictation shortcuts keep everyday navigation within reach while preserving native widgets and themes. Developed on a Microsoft Surface Pro 4 running the linux-surface kernel; other compatible Omarchy devices are welcome for testing. Hyprland remains active in both modes.
 
-![Portrait More panel](screenshots/portrait-more.png)
+## Short GitHub description
 
-Suggested demonstration: detach keyboard → Home → open an application → use dictation in a text field → switch to Omarchy tiling → rotate to portrait → open a native widget through More → reconnect keyboard.
+Touch-friendly tablet mode for Omarchy: app launcher, single-app layout, on-screen keyboard and dictation shortcuts. Built on Surface Pro 4 with linux-surface.
 
-This sheet is prepared for sharing; no upstream message or submission has been sent.
+## Démonstration suggérée
+
+1. Partir du bureau et toucher le bouton Tablet.
+2. Ouvrir l’accueil et lancer une application.
+3. Toucher un champ compatible pour afficher le clavier, puis le masquer.
+4. Glisser depuis la poignée inférieure pour changer de fenêtre.
+5. Montrer Settings : mode, activation du clavier et apparence.
+6. Revenir à Desktop et montrer le retour à la mosaïque.
+7. Après validation physique, montrer également Automatic avec détachement/rebranchement du clavier et une dictée réelle.
+
+![Accueil actuel](../preview.png)

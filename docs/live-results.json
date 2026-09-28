@@ -1,16 +1,37 @@
-[
-  "Single app maximizes active internal window",
-  "Omarchy tiling restores window state",
-  "Manual on-screen keyboard show/hide",
-  "Native audio popup lifecycle",
-  "Native bluetooth popup lifecycle",
-  "Native network popup lifecycle",
-  "Native power popup lifecycle",
-  "Native clock popup lifecycle",
-  "Native monitor popup lifecycle",
-  "Native agents popup lifecycle",
-  "Configured native widgets loaded",
-  "Portrait/landscape, dark/light palette and 12/20px font captures",
-  "Plugin rescan preserves widgets and backend",
-  "Desktop mode releases keyboard service"
-]
+{
+  "passed": [
+    "Only two tablet layers while apps are in use",
+    "Single-app maximize and desktop restoration",
+    "Keyboard show/hide via backend and D-Bus",
+    "Repeated mode changes retain 14 unique loaded widgets",
+    "Seven native popups open/close",
+    "Real Wayland clicks: mode, apps, windows, settings",
+    "Real pointer gesture: bottom tap and upward drag",
+    "Close button on disposable application",
+    "Landscape and both portrait orientations; three layers with Home open",
+    "Switcher and settings share one exclusive overlay",
+    "Auto mode follows detected physical keyboard"
+  ],
+  "rotation_dispatch_ms": [
+    17.1,
+    7.2,
+    8.1,
+    9.4,
+    6.7,
+    8.5
+  ],
+  "limits": [
+    "No physical accelerometer, touch/stylus accuracy or keyboard detach tested",
+    "No microphone transcription tested",
+    "Dispatch timing is not frame timing"
+  ],
+  "median_rotation_dispatch_ms": 8.3,
+  "additional_checks": [
+    "GTK disposable input: automatic OSK and Wayland typing (scripts/check_input.py)",
+    "Search LocalSend through Home, long-press remove/re-add favorite with original order restored",
+    "Launch Files from its Home tile and close only that newly created window",
+    "Portrait font sizes 12 and 20, dark and light palette; original font and palette restored",
+    "All QML icon codepoints exist in the installed JetBrainsMono Nerd Font",
+    "Real touch-shortcut clicks: clipboard, emoji, Omarchy menu; native layers opened and dismissed without selecting content"
+  ]
+}

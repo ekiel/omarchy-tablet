@@ -4,7 +4,7 @@
   "name": "Omarchy Tablet",
   "version": "0.2.0",
   "author": "Charles Rivest",
-  "description": "A touch-friendly home screen, application grid and adaptive top bar for Omarchy tablets.",
+  "description": "Switch Omarchy between tablet and desktop modes, with a touch launcher, single-app layout, on-screen keyboard and dictation shortcuts.",
   "kinds": [
     "bar",
     "service",

@@ -24,6 +24,7 @@ Item {
     property bool centerHoverRevealSuppressed: false
     property var activePopout: null
     property var clickTargets: []
+    property var touchSizing: new Map()
     property var slots: []
     property string tooltipText: ""
     function setCenterHoverRevealSuppressed(value) { centerHoverRevealSuppressed = value }
@@ -35,11 +36,33 @@ Item {
         // Enlarge the original control, so native right clicks, wheel actions and
         // multi-button widgets keep receiving their own events.
         if ("fixedWidth" in target && target.fixedWidth > 0) {
-            const original = target.fixedWidth
-            target.fixedWidth = Qt.binding(() => host.tablet ? Math.max(48, original) : original)
+            const sizing = touchWidth.createObject(host, {control: target,
+                baseWidth: target.fixedWidth, baseScale: Style.spaceReal(1)})
+            touchSizing.set(target, sizing)
         }
     }
-    function unregisterClickTarget(target) { clickTargets = clickTargets.filter(t => t !== target) }
+    function unregisterClickTarget(target) {
+        const sizing = touchSizing.get(target)
+        if (sizing) {
+            sizing.when = false  // restore the native binding before re-registering
+            sizing.destroy()
+            touchSizing.delete(target)
+        }
+        clickTargets = clickTargets.filter(t => t !== target)
+    }
+    Component {
+        id: touchWidth
+        Binding {
+            required property var control
+            required property real baseWidth
+            required property real baseScale
+            target: control
+            property: "fixedWidth"
+            value: control ? Math.max(48, "slotSize" in control ? control.slotSize : baseWidth * Style.spaceReal(1) / baseScale) : 48
+            when: host.tablet
+            restoreMode: Binding.RestoreBindingOrValue
+        }
+    }
     function registerSlot(slot) { slots = slots.concat([slot]) }
     function unregisterSlot(slot) { slots = slots.filter(s => s !== slot) }
     function moduleWidgets(id) { return slots.filter(s => s.moduleName === id && s.item).map(s => s.item) }

@@ -14,10 +14,12 @@ import select
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import struct
 import sys
 import time
+from keyboard_theme import KeyboardTheme, STYLES
 
 DEFAULT_FAVORITES = ["chromium", "org.gnome.Nautilus", "com.github.xournalpp.xournalpp",
                      "libreoffice-writer", "YouTube", "org.gnome.Calculator", "murmure", "localsend"]
@@ -30,7 +32,7 @@ def valid_command(value):
 
 
 def wallpaper():
-    path = Path.home() / ".local/state/omarchy/current/background"
+    path = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy/current/background"
     return path.resolve().as_uri() if path.exists() else ""
 
 
@@ -83,24 +85,34 @@ class Backend:
         self.state_dir = Path(state_dir or Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy-tablet")
         self.preferences_path = self.state_dir / "preferences.json"
         self.preferences = {"mode": "auto", "favorites": DEFAULT_FAVORITES.copy(), "layout": "single",
-                            "dictationCommand": ["murmure", "--transcription"]}
+                            "dictationCommand": ["murmure", "--transcription"], "keyboardStyle": "omarchy", "keyboardActivation": "auto"}
         if self.preferences_path.exists():
             try:
                 saved = json.loads(self.preferences_path.read_text())
             except (ValueError, OSError):
                 saved = {}
-            if saved.get("layout") in {"single", "tiling"}:
+            if not isinstance(saved, dict):
+                saved = {}
+            if isinstance(saved.get("layout"), str) and saved["layout"] in {"single", "tiling"}:
                 self.preferences["layout"] = saved["layout"]
             if valid_command(saved.get("dictationCommand")):
                 self.preferences["dictationCommand"] = saved["dictationCommand"]
-            if saved.get("mode") in MODES:
+            if isinstance(saved.get("mode"), str) and saved["mode"] in MODES:
                 self.preferences["mode"] = saved["mode"]
+            if isinstance(saved.get("keyboardStyle"), str) and saved["keyboardStyle"] in STYLES:
+                self.preferences["keyboardStyle"] = saved["keyboardStyle"]
+            if isinstance(saved.get("keyboardActivation"), str) and saved["keyboardActivation"] in {"auto", "manual"}:
+                self.preferences["keyboardActivation"] = saved["keyboardActivation"]
             if isinstance(saved.get("favorites"), list):
                 self.preferences["favorites"] = [s for s in saved["favorites"] if isinstance(s, str)]
         self.runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "omarchy-tablet"
         self.runtime.mkdir(mode=0o700, exist_ok=True)
+        self.keyboard_theme = KeyboardTheme(self.runtime)
+        self.keyboard_css_applied = None
         self.lease = self.runtime / "keyboard-lease.json"
         self.manual_keyboard = False
+        self.keep_keyboard_open = False
+        self.keep_keyboard_until = 0
         self.keyboard_started = False
         self.error = ""
         self.last_mode = None
@@ -111,6 +123,10 @@ class Backend:
         self.dictation_process = None
         self.animations = True
         self.next_style_check = 0
+        self.next_keyboard_check = 0
+        self.layout_dirty = True
+        self.last_focus_event = None
+        self.dismiss_keyboard_on_focus = False
 
     def active(self, unit):
         return run("systemctl", "--user", "is-active", "--quiet", unit, check=False).returncode == 0
@@ -132,6 +148,7 @@ class Backend:
         if self.active("omarchy-tablet-keyboard.service"):
             self.keyboard_started = True
             return
+        css = self.keyboard_theme.prepare(self.preferences["keyboardStyle"])
         fcitx = self.active("omarchy-fcitx5.service")
         osk_enabled = run("gsettings", "get", "org.gnome.desktop.a11y.applications", "screen-keyboard-enabled").stdout.strip()
         if osk_enabled not in {"true", "false"}:
@@ -143,7 +160,8 @@ class Backend:
                 run("systemctl", "--user", "stop", "omarchy-fcitx5.service")
             run("systemd-run", "--user", "--collect", "--unit=omarchy-tablet-keyboard",
                 "--property=PartOf=graphical-session.target", "--", "/usr/bin/env",
-                shutil.which("squeekboard"))
+                *self.keyboard_theme.environment(), shutil.which("squeekboard"))
+            self.keyboard_css_applied = css
             self.keyboard_started = True
         except Exception:
             self.restore_keyboard()
@@ -158,16 +176,44 @@ class Backend:
         run("busctl", "--user", "call", "sm.puri.OSK0", "/sm/puri/OSK0",
             "sm.puri.OSK0", "SetVisible", "b", "true" if visible else "false")
 
+    def automatic_keyboard(self, tablet=None):
+        if tablet is None:
+            tablet = self.state()["tablet"]
+        return tablet and self.preferences["keyboardActivation"] == "auto"
+
+    def hide_keyboard(self):
+        self.manual_keyboard = False
+        self.keep_keyboard_open = False
+        if self.keyboard_started:
+            try:
+                self.show_keyboard(False)
+            finally:
+                # Automatic mode keeps the input method listening for the next
+                # text-input activation; manual mode stays stopped until a tap.
+                if not self.automatic_keyboard():
+                    self.restore_keyboard()
+
+    def _effective_layout(self, tablet):
+        """Layout follows the mode: tablets use Single app, desktop uses tiling.
+
+        No manual Single-app/Tiling switch; switching Desktop ⇄ Tablet swaps it.
+        """
+        return "single" if tablet else "tiling"
+
     def state(self):
         attached = physical_keyboard_present(Path("/proc/bus/input/devices").read_text())
-        return dict(self.preferences, attached=attached,
-                    tablet=tablet_mode(self.preferences["mode"], attached),
-                    keyboardAvailable=bool(shutil.which("squeekboard")),
-                    keyboardRunning=self.keyboard_started, error=self.error,
-                    dictationCommandText=shlex.join(self.preferences["dictationCommand"]),
-                    dictationAvailable=bool(shutil.which(self.preferences["dictationCommand"][0])),
-                    animations=self.animations,
-                    wallpaper=wallpaper())
+        tablet = tablet_mode(self.preferences["mode"], attached)
+        state = dict(self.preferences, attached=attached, tablet=tablet)
+        state["layout"] = self._effective_layout(tablet)
+        state.update(
+            keyboardAvailable=bool(shutil.which("squeekboard")),
+            keyboardRunning=self.keyboard_started, error=self.error,
+            dictationCommandText=shlex.join(self.preferences["dictationCommand"]),
+            dictationAvailable=bool(shutil.which(self.preferences["dictationCommand"][0])),
+            animations=self.animations,
+            wallpaper=wallpaper(),
+        )
+        return state
 
     def command(self, data):
         if not isinstance(data, dict):
@@ -176,14 +222,26 @@ class Backend:
         if action == "mode":
             if value == "toggle":
                 value = "desktop" if self.state()["tablet"] else "tablet"
-            if value not in MODES:
+            if not isinstance(value, str) or value not in MODES:
                 raise ValueError("Unknown mode")
             self.preferences["mode"] = value
             self.manual_keyboard = False
+            self.keep_keyboard_open = False
         elif action == "layout":
-            if value not in {"single", "tiling"}:
+            if not isinstance(value, str) or value not in {"single", "tiling"}:
                 raise ValueError("Unknown layout")
+            # Kept for older IPC clients: layout follows the selected mode.
+            self.preferences["mode"] = "tablet" if value == "single" else "desktop"
             self.preferences["layout"] = value
+        elif action == "keyboardActivation":
+            if not isinstance(value, str) or value not in {"auto", "manual"}:
+                raise ValueError("Unknown keyboard activation")
+            self.preferences["keyboardActivation"] = value
+            self.hide_keyboard()
+        elif action == "keyboardStyle":
+            if not isinstance(value, str) or value not in STYLES:
+                raise ValueError("Unknown keyboard style")
+            self.preferences["keyboardStyle"] = value
         elif action == "dictationCommand":
             argv = shlex.split(value) if isinstance(value, str) else value
             if not valid_command(argv):
@@ -192,21 +250,30 @@ class Backend:
         elif action == "dictation":
             if self.dictation_process and self.dictation_process.poll() is None:
                 return
-            self.dictation_process = subprocess.Popen(self.preferences["dictationCommand"],
+            # Dictation may retain an explicitly opened keyboard, but must not
+            # reopen one the user dismissed.
+            if self.keyboard_started and (self.manual_keyboard or self.visible()):
+                self.keep_keyboard_open = True
+                # Cover the speech app's startup focus transition, then give
+                # visibility back to Wayland text-input (including auto-hide).
+                self.keep_keyboard_until = time.monotonic() + 2
+            argv = list(self.preferences["dictationCommand"])
+            if Path(argv[0]).name == "murmure" and "--hidden" not in argv:
+                argv.append("--hidden")
+            self.dictation_process = subprocess.Popen(argv,
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         elif action == "favorite":
             if not isinstance(value, str) or not value or len(value) > 256:
                 raise ValueError("Invalid application ID")
             favorites = self.preferences["favorites"]
             favorites.remove(value) if value in favorites else favorites.append(value)
+        elif action == "hideKeyboard":
+            self.hide_keyboard()
         elif action == "keyboard":
             if not shutil.which("squeekboard"):
                 raise RuntimeError("Keyboard unavailable: install squeekboard.")
             if self.keyboard_started and self.visible():
-                self.show_keyboard(False)
-                if not self.state()["tablet"]:
-                    self.manual_keyboard = False
-                    self.restore_keyboard()
+                self.hide_keyboard()
             else:
                 self.manual_keyboard = True
                 self.start_keyboard()
@@ -221,15 +288,20 @@ class Backend:
                         time.sleep(0.1)
         else:
             raise ValueError("Unknown command")
-        atomic_json(self.preferences_path, self.preferences)
+        if action in {"mode", "layout", "dictationCommand", "favorite", "keyboardStyle", "keyboardActivation"}:
+            atomic_json(self.preferences_path, self.preferences)
+        if action in {"mode", "layout"}:
+            self.layout_dirty = True
         self.error = ""
 
     def reconcile(self):
         state = self.state()
         if self.last_mode is not None and state["tablet"] != self.last_mode:
             self.manual_keyboard = False
+            self.keep_keyboard_open = False
+            self.layout_dirty = True
         self.last_mode = state["tablet"]
-        wanted = state["keyboardAvailable"] and (state["tablet"] or self.manual_keyboard)
+        wanted = state["keyboardAvailable"] and (self.manual_keyboard or self.automatic_keyboard(state["tablet"]))
         if wanted and not self.keyboard_started and time.monotonic() >= self.retry_after:
             try:
                 self.start_keyboard()
@@ -238,13 +310,36 @@ class Backend:
                 self.retry_after = time.monotonic() + 30
         elif not wanted and self.keyboard_started:
             self.restore_keyboard()
-        if self.keyboard_started and not self.active("omarchy-tablet-keyboard.service"):
-            self.restore_keyboard()
-            self.error = "Keyboard stopped. Check journalctl --user -u omarchy-tablet-keyboard."
-            self.retry_after = time.monotonic() + 30
-        self.layout.reconcile(state["tablet"] and self.preferences["layout"] == "single")
+        if self.keyboard_started and time.monotonic() >= self.next_keyboard_check:
+            self.next_keyboard_check = time.monotonic() + 5
+            if not self.active("omarchy-tablet-keyboard.service"):
+                self.restore_keyboard()
+                self.error = "Keyboard stopped. Check journalctl --user -u omarchy-tablet-keyboard."
+                self.retry_after = time.monotonic() + 30
+        if self.dismiss_keyboard_on_focus:
+            if self.keyboard_started and self.automatic_keyboard(state["tablet"]) and not self.keep_keyboard_open:
+                # A new window may inherit the previous client's OSK visibility.
+                # Dismiss it once; subsequent field activations remain automatic.
+                self.show_keyboard(False)
+                self.manual_keyboard = False
+            self.dismiss_keyboard_on_focus = False
+        if self.keep_keyboard_open and time.monotonic() >= self.keep_keyboard_until:
+            self.keep_keyboard_open = False
+        if self.keyboard_started and self.keep_keyboard_open and not self.visible():
+            self.show_keyboard(True)
+        if self.keyboard_started:
+            css = self.keyboard_theme.prepare(self.preferences["keyboardStyle"])
+            # Reload only while hidden: never interrupt an in-progress touch or
+            # composing sequence. Keep the input-method recovery lease intact.
+            if css != self.keyboard_css_applied and not self.visible():
+                run("systemctl", "--user", "restart", "omarchy-tablet-keyboard.service")
+                self.keyboard_css_applied = css
+        if self.layout_dirty:
+            # Keep dirty on failure: a failed dispatch must be retried.
+            self.layout.reconcile(self._effective_layout(state["tablet"]) == "single")
+            self.layout_dirty = False
         if time.monotonic() >= self.next_style_check:
-            self.next_style_check = time.monotonic() + 5
+            self.next_style_check = time.monotonic() + 30
             result = run("hyprctl", "-j", "getoption", "animations:enabled", check=False)
             if result.returncode == 0:
                 self.animations = bool(json.loads(result.stdout).get("int", 1))
@@ -257,40 +352,107 @@ class Backend:
     def stop(self, *_):
         self.running = False
 
+    def layout_event(self, line):
+        """Ignore title churn: Hyprland repeats activewindowv2 for the same ID."""
+        name, _, data = line.partition(b">>")
+        if name == b"activewindowv2":
+            if data == self.last_focus_event:
+                return False
+            self.last_focus_event = data
+            self.dismiss_keyboard_on_focus = True
+            return True
+        if name == b"configreloaded":
+            self.next_style_check = 0
+        return name in {b"openwindow", b"closewindow", b"movewindow", b"movewindowv2",
+                        b"changefloatingmode", b"fullscreen", b"workspace", b"workspacev2",
+                        b"focusedmon", b"monitoradded", b"monitorremoved", b"configreloaded",
+                        b"togglegroup", b"pin"}
+
     def daemon(self):
         lock = (self.runtime / "backend.lock").open("w")
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         signal.signal(signal.SIGTERM, self.stop)
         signal.signal(signal.SIGINT, self.stop)
-        self.layout.restore()
-        self.restore_keyboard()  # recover a lease after a previous shell crash
         previous = ""
         buffer = b""
+        events = None
+        event_buffer = b""
+        next_connect = 0
+        next_maintenance = 0
+        layout_due = 0
         try:
+            self.layout.restore()
+            self.restore_keyboard()  # recover after a previous shell crash
             while self.running:
-                try:
-                    state = json.dumps(self.reconcile(), ensure_ascii=False)
-                    if state != previous:
-                        print(state, flush=True)
-                        previous = state
-                    readable, _, _ = select.select([sys.stdin], [], [], 0.5)
-                    if readable:
-                        chunk = os.read(sys.stdin.fileno(), 65536)
-                        if not chunk:
-                            break
-                        buffer += chunk
-                        while b"\n" in buffer:
-                            line, buffer = buffer.split(b"\n", 1)
-                            try:
-                                self.command(json.loads(line))
-                            except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
-                                self.error = str(exc)
-                except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
-                    self.error = str(exc)
-                    print(json.dumps(self.state(), ensure_ascii=False), flush=True)
-                    previous = ""
-                    time.sleep(2)
+                now = time.monotonic()
+                if events is None and now >= next_connect:
+                    next_connect = now + 5
+                    candidate = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    try:
+                        candidate.connect(str(self.runtime.parent / "hypr" /
+                            os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "") / ".socket2.sock"))
+                        candidate.setblocking(False)
+                        events = candidate
+                        event_buffer = b""
+                        self.last_focus_event = None
+                        self.layout_dirty = True
+                    except OSError:
+                        candidate.close()
+                if now >= next_maintenance or (self.layout_dirty and now >= layout_due):
+                    try:
+                        # Slow fallback keeps hardware detection and recovery alive
+                        # even if the compositor event socket is unavailable.
+                        if events is None:
+                            self.layout_dirty = True
+                        state = json.dumps(self.reconcile(), ensure_ascii=False)
+                        if state != previous:
+                            print(state, flush=True)
+                            previous = state
+                    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+                        self.error = str(exc)
+                        print(json.dumps(self.state(), ensure_ascii=False), flush=True)
+                        previous = ""
+                        layout_due = time.monotonic() + 2
+                    next_maintenance = time.monotonic() + (0.5 if self.keep_keyboard_open else 2)
+                timeout = max(0, next_maintenance - time.monotonic())
+                if self.layout_dirty:
+                    timeout = min(timeout, max(0, layout_due - time.monotonic()))
+                readable, _, _ = select.select([sys.stdin] + ([events] if events else []), [], [], timeout)
+                if events and events in readable:
+                    try:
+                        chunk = events.recv(65536)
+                    except OSError:
+                        chunk = b""
+                    if not chunk:
+                        events.close()
+                        events = None
+                    else:
+                        event_buffer += chunk
+                        while b"\n" in event_buffer:
+                            line, event_buffer = event_buffer.split(b"\n", 1)
+                            if self.layout_event(line):
+                                if not self.layout_dirty:
+                                    layout_due = time.monotonic() + .04
+                                self.layout_dirty = True
+                if sys.stdin in readable:
+                    chunk = os.read(sys.stdin.fileno(), 65536)
+                    if not chunk:
+                        break
+                    buffer += chunk
+                    if len(buffer) > 1024 * 1024:
+                        buffer = b""
+                        self.error = "Command too large"
+                    while b"\n" in buffer:
+                        line, buffer = buffer.split(b"\n", 1)
+                        try:
+                            self.command(json.loads(line))
+                        except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                            self.error = str(exc)
+                    next_maintenance = 0
+                    layout_due = 0
         finally:
+            if events:
+                events.close()
             try:
                 self.layout.restore()
             finally:

@@ -1,0 +1,11 @@
+{
+  "scope": "Publication candidate installed from working tree; navigation only",
+  "build": "202f10f19e2ea410/tablet.py",
+  "passed": [
+    "Tablet mode",
+    "Home, apps, settings, switcher and close IPC",
+    "Desktop mode releases keyboard service",
+    "No Hyprland configuration errors"
+  ],
+  "restoredMode": "desktop"
+}

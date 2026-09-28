@@ -1,0 +1,290 @@
+{
+  "tablet": [
+    {
+      "screen": "eDP-1",
+      "tablet": false,
+      "size": 43,
+      "panelHeight": 55,
+      "viewport": 2399,
+      "content": 2399,
+      "slots": [
+        {
+          "id": "omarchy.indicators",
+          "width": 0,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.keyboard-layout",
+          "width": 0,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.weather",
+          "width": 35,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.system-update",
+          "width": 0,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.workspaces",
+          "width": 175.5,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.menu",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.clock",
+          "width": 172.97916666666666,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.tray",
+          "width": 90,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.agents",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.bluetooth",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.network",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.audio",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.monitor",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.power",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        }
+      ]
+    }
+  ],
+  "desktop": [
+    {
+      "screen": "eDP-1",
+      "tablet": false,
+      "size": 43,
+      "panelHeight": 55,
+      "viewport": 2399,
+      "content": 2399,
+      "slots": [
+        {
+          "id": "omarchy.indicators",
+          "width": 0,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.keyboard-layout",
+          "width": 0,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.weather",
+          "width": 35,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.system-update",
+          "width": 0,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.workspaces",
+          "width": 175.5,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.menu",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.clock",
+          "width": 172.97916666666666,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.tray",
+          "width": 90,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.agents",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.bluetooth",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.network",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.audio",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.monitor",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.power",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        }
+      ]
+    }
+  ],
+  "portrait": [
+    {
+      "screen": "eDP-1",
+      "tablet": false,
+      "size": 43,
+      "panelHeight": 55,
+      "viewport": 575,
+      "content": 864.4791666666666,
+      "slots": [
+        {
+          "id": "omarchy.indicators",
+          "width": 0,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.keyboard-layout",
+          "width": 0,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.weather",
+          "width": 35,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.system-update",
+          "width": 0,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.workspaces",
+          "width": 175.5,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.menu",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.clock",
+          "width": 172.97916666666666,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.tray",
+          "width": 90,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.agents",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.bluetooth",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.network",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.audio",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.monitor",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        },
+        {
+          "id": "omarchy.power",
+          "width": 45,
+          "height": 43,
+          "loaded": true
+        }
+      ]
+    }
+  ]
+}

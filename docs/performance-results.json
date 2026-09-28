@@ -1,0 +1,12 @@
+{
+  "duration_seconds": 10.0,
+  "cpu_percent_one_core": {
+    "shell": 2.9,
+    "backend": 0.1
+  },
+  "baseline_5_seconds": {
+    "shell": 3.0,
+    "backend": 0.8
+  },
+  "note": "Short sequential samples, not a controlled FPS benchmark; excludes child-process CPU"
+}

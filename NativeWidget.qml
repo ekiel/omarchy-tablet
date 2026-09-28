@@ -7,7 +7,7 @@ Item {
     required property var entry
     required property var registry
     required property var host
-    readonly property string moduleName: typeof entry === "string" ? entry : entry.id
+    readonly property string moduleName: typeof entry === "string" ? entry : (entry ? entry.id : "")
     property var item: null
     readonly property var registered: registry && registry.widgets ? registry.widgets[moduleName] : null
     implicitWidth: item && item.visible ? Math.max(host.tablet ? 48 : 0, item.implicitWidth) : 0

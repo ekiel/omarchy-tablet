@@ -83,6 +83,15 @@ class LayoutTests(unittest.TestCase):
         self.assertIn('address:0xcd', self.calls[-1][-1])
         self.assertIn('internal=1', self.calls[-1][-1])
 
+    def test_excluded_siblings_are_not_journaled_or_restored(self):
+        for changes in ({"floating": True}, {"pinned": True}, {"grouped": ["0xee"]}):
+            with self.subTest(changes=changes):
+                self.clients = [self.active, client("0xcd", fullscreen=1, **changes)]
+                self.layout.reconcile(True)
+                self.assertNotIn("0xcd", self.layout.windows)
+                self.layout.restore(self.clients)
+        self.assertFalse(any('address:0xcd' in str(call) for call in self.calls))
+
     def test_preexisting_fullscreen_sibling_is_not_managed_when_focused(self):
         sibling = client("0xcd", fullscreen=2)
         self.clients.append(sibling)
@@ -97,6 +106,68 @@ class LayoutTests(unittest.TestCase):
         with patch.dict("os.environ", {"HYPRLAND_INSTANCE_SIGNATURE": "new-session"}):
             other = SingleApp(self.path)
         self.assertFalse(other.windows)
+
+    def test_failed_dispatch_retries_same_focused_window(self):
+        with patch.object(self.layout, "set_state", side_effect=[RuntimeError("busy"), None]) as dispatch:
+            with self.assertRaises(RuntimeError):
+                self.layout.reconcile(True)
+            self.layout.reconcile(True)
+            self.assertEqual(dispatch.call_count, 2)
+
+    def test_closed_window_lease_removed_with_no_active_window(self):
+        self.layout.reconcile(True)
+        self.active, self.clients = {}, []
+        self.layout.reconcile(True)
+        self.assertFalse(self.layout.windows)
+
+    def test_managed_window_can_request_real_fullscreen(self):
+        self.layout.reconcile(True)
+        self.active["fullscreen"] = 2
+        before = len([c for c in self.calls if c[1] == "eval"])
+        self.layout.reconcile(True)
+        self.assertEqual(before, len([c for c in self.calls if c[1] == "eval"]))
+
+    def test_same_window_becoming_floating_is_restored(self):
+        self.layout.reconcile(True)
+        self.active["floating"] = True
+        self.layout.reconcile(True)
+        self.assertFalse(self.layout.windows)
+
+    def test_new_window_inheriting_managed_maximization_restores_to_tiling(self):
+        self.layout.reconcile(True)
+        newcomer = client("0xcd", fullscreen=1, fullscreenClient=1)
+        self.clients.append(newcomer)
+        self.active = newcomer
+        self.layout.reconcile(True)
+        self.assertEqual(self.layout.windows["0xcd"]["internal"], 0)
+        self.assertEqual(self.layout.windows["0xcd"]["client"], 0)
+        self.layout.reconcile(False)
+        self.assertFalse(self.layout.windows)
+
+    def test_existing_maximized_window_is_not_mistaken_for_inheritance(self):
+        old = client("0xcd", fullscreen=1, workspace={"id": 2})
+        self.clients.append(old)
+        self.layout.reconcile(True)
+        old["workspace"] = {"id": 1}
+        self.active = old
+        self.layout.reconcile(True)
+        self.assertNotIn("0xcd", self.layout.windows)
+
+    def test_reused_address_is_journaled_with_new_identity(self):
+        self.layout.reconcile(True)
+        self.active["stableId"] = "new-window"
+        self.layout.reconcile(True)
+        self.assertEqual(self.layout.windows["0xab"]["identity"][0], "new-window")
+
+    def test_mapped_window_seen_before_focus_still_inherits_correctly(self):
+        self.layout.reconcile(True)
+        newcomer = client("0xcd", fullscreen=1, fullscreenClient=1)
+        self.clients.append(newcomer)
+        self.layout.reconcile(True)  # openwindow, still focused on the old app
+        newcomer.update(fullscreen=1, fullscreenClient=1)
+        self.active = newcomer
+        self.layout.reconcile(True)
+        self.assertEqual(self.layout.windows["0xcd"]["internal"], 0)
 
     def test_dispatch_address_validation(self):
         with self.assertRaises(ValueError):

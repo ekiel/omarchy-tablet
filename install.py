@@ -9,6 +9,7 @@ import shutil
 import hashlib
 import subprocess
 import time
+import tempfile
 from tablet import atomic_json
 
 PLUGIN_ID = "surface.tablet"
@@ -19,41 +20,75 @@ def install(config_dir, state_dir, source, activate=True):
     config = json.loads(config_file.read_text())
     if config.get("version") != 1:
         raise RuntimeError("Unsupported Omarchy shell.json version")
+    destination = config_dir / "omarchy/plugins" / PLUGIN_ID
+    if (destination / ".git").exists():
+        raise RuntimeError("This plugin is managed by git. Use omarchy plugin update surface.tablet; "
+                           "do not run the development installer over a marketplace checkout.")
+    files = [*source.glob("*.qml"), source / "tablet.py", source / "layout.py", source / "keyboard_theme.py", source / "keyboard_watch.py", source / "manifest.json", source / "install.py"]
+    # Validate the complete payload before changing configuration or backups.
+    revision = hashlib.sha256(b"".join(f.read_bytes() for f in sorted(files))).hexdigest()[:16]
+    manifest = json.loads((source / "manifest.json").read_text())
     backup = state_dir / "omarchy-tablet/install-backup.json"
     if not backup.exists():
-        atomic_json(backup, {"bar": copy.deepcopy(config.get("bar", {}))})
-    destination = config_dir / "omarchy/plugins" / PLUGIN_ID
+        original = copy.deepcopy(config.get("bar", {}))
+        if original.get("id") == PLUGIN_ID:
+            original = {"id": "omarchy.bar", "position": "top"}
+        atomic_json(backup, {"bar": original})
     destination.mkdir(parents=True, exist_ok=True)
-    files = [*source.glob("*.qml"), source / "tablet.py", source / "layout.py", source / "manifest.json", source / "install.py"]
     # New URLs avoid stale QML components retained by the host during a rescan.
-    revision = hashlib.sha256(b"".join(f.read_bytes() for f in sorted(files))).hexdigest()[:16]
     release = destination / "releases" / revision
-    release.mkdir(parents=True, exist_ok=True)
-    for file in files:
-        shutil.copy2(file, release / file.name)
-        if file.name != "manifest.json" and file.resolve() != (destination / file.name).resolve():
-            shutil.copy2(file, destination / file.name)
-    manifest = json.loads((source / "manifest.json").read_text())
+    if not release.exists():
+        # Prepare outside the watched plugin tree. Publishing a complete release
+        # prevents repeated hot reloads against partially copied QML / Python.
+        release.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="tablet-stage-", dir=config_dir) as stage:
+            staged = Path(stage) / revision
+            staged.mkdir()
+            for file in files:
+                shutil.copy2(file, staged / file.name)
+            staged.rename(release)
     # Accept installation from a previously installed directory as well.
     manifest["entryPoints"] = {kind: f"releases/{revision}/{Path(name).name}"
                                for kind, name in manifest["entryPoints"].items()}
+    # Stable entry point for restoring from the installed directory. The code
+    # itself always comes from the currently published immutable release.
+    wrapper = """#!/usr/bin/env python3
+import json
+from pathlib import Path
+import runpy
+base = Path(__file__).resolve().parent
+manifest = json.loads((base / 'manifest.json').read_text())
+script = base / Path(manifest['entryPoints']['bar']).parent / 'install.py'
+import sys
+sys.path.insert(0, str(script.parent))
+runpy.run_path(str(script), run_name='__main__')
+"""
+    entry = destination / "install.py"
+    if not entry.exists() or entry.read_text() != wrapper:
+        entry.write_text(wrapper)
     atomic_json(destination / "manifest.json", manifest)
     config.setdefault("bar", {})["id"] = PLUGIN_ID
     config["bar"]["position"] = "top"
-    atomic_json(config_file, config)
+    if json.loads(config_file.read_text()) != config:
+        atomic_json(config_file, config)
     if activate:
-        # File watchers may already be rebuilding plugins. An IPC reply can
-        # time out even though the request was delivered, so verify the new
-        # service URL instead of treating that transient timeout as failure.
-        subprocess.run(["omarchy-shell", "shell", "rescanPlugins"], capture_output=True, timeout=20)
-        subprocess.run(["omarchy-shell", "shell", "reloadConfig"], capture_output=True, timeout=20)
+        # Let the file watcher finish first. Immediate rescan + config reload
+        # used to rebuild every plugin several times in the same installation.
         ready = 0
         for attempt in range(60):
             time.sleep(.5)
-            result = subprocess.run(["omarchy-shell", "tablet", "build"], capture_output=True, text=True, timeout=10)
-            ready = ready + 1 if result.returncode == 0 and f"/releases/{revision}/" in result.stdout else 0
+            try:
+                result = subprocess.run(["omarchy-shell", "tablet", "build"], capture_output=True, text=True, timeout=3)
+                ready = ready + 1 if result.returncode == 0 and f"/releases/{revision}/" in result.stdout else 0
+            except subprocess.TimeoutExpired:
+                ready = 0
             if ready >= 3:
                 break
+            if attempt == 15:
+                try:
+                    subprocess.run(["omarchy-shell", "shell", "rescanPlugins"], capture_output=True, timeout=3)
+                except subprocess.TimeoutExpired:
+                    pass  # IPC may time out after delivering the request.
         else:
             raise RuntimeError("Plugin installed but service is not ready. Run omarchy restart shell or restore.")
     print(f"Installed {PLUGIN_ID}. Previous bar saved in {backup}")
@@ -63,8 +98,12 @@ def restore(config_dir, state_dir, activate=True):
     config_file = config_dir / "omarchy/shell.json"
     backup = state_dir / "omarchy-tablet/install-backup.json"
     config = json.loads(config_file.read_text())
+    if config.get("version") != 1:
+        raise RuntimeError("Unsupported Omarchy shell.json version")
     if config.get("bar", {}).get("id") == PLUGIN_ID:
         original = json.loads(backup.read_text())["bar"] if backup.exists() else {"id": "omarchy.bar", "position": "top"}
+        if original.get("id") == PLUGIN_ID:
+            original = {"id": "omarchy.bar", "position": "top"}
         for key in ("id", "position"):
             if key in original:
                 config["bar"][key] = original[key]
