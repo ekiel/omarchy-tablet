@@ -1,0 +1,13 @@
+{
+  "passed": [
+    "Local installation removed and automatically backed up",
+    "Standard public GitHub installation and activation",
+    "Standard update command",
+    "Disable unloads the plugin",
+    "Re-enable",
+    "Standard git installation removal",
+    "Public installation restored; original mode and no Hyprland config errors"
+  ],
+  "installedCommit": "7e542ac2c87917d357d4f277a8c083dff37bbb3e",
+  "previousInstallationBackup": ".surface.tablet.bak.20260928035612"
+}

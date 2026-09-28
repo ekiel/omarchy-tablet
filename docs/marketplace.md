@@ -47,7 +47,7 @@ git remote add origin https://github.com/varlet99/omarchy-tablet.git
 git push -u origin main
 ```
 
-Attendre le résultat GitHub Actions. Sur une installation compatible de test, vérifier ensuite le parcours standard `omarchy plugin add <repository-url> --enable`, mise à jour, désactivation, réactivation et retrait. Le parcours public complet ne peut être validé avant que cette URL existe.
+Le dépôt est public et les jobs Python 3.11/3.14 de [GitHub Actions](https://github.com/varlet99/omarchy-tablet/actions) ont réussi. Le parcours standard d’installation, commande de mise à jour, désactivation, réactivation, retrait et réinstallation est vérifié : [résultats](marketplace-install-check.json).
 
 ## Soumission au catalogue
 

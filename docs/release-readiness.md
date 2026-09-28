@@ -2,7 +2,7 @@
 
 ## Avis
 
-**Le dépôt est préparé pour une première publication GitHub en préversion.** La structure attendue par le marketplace est présente. La soumission au catalogue doit encore attendre l’URL publique, la vérification de l’identifiant et les derniers essais matériels et d’installation.
+**Le dépôt est préparé pour une première publication GitHub en préversion.** La structure attendue par le marketplace est présente. Le dépôt public est [varlet99/omarchy-tablet](https://github.com/varlet99/omarchy-tablet). Le parcours standard d’installation a été vérifié et la CI Python 3.11/3.14 a réussi. La version est soumise comme préversion, avec les essais physiques encore non réalisés explicitement déclarés.
 
 Le code est organisé de façon cohérente : frontend QML, backend Python, gestion des fenêtres séparée et tests de restauration ciblés. Les commandes de dictée utilisent une liste d’arguments, les adresses de fenêtres sont validées et un journal précède les modifications de disposition. Cela constitue une bonne base maintenable. Cette revue ne prouve pas l’absence de tous les défauts ni une compatibilité universelle.
 
@@ -19,7 +19,7 @@ Le code est organisé de façon cohérente : frontend QML, backend Python, gesti
 | Le chemin du fond ignorait `XDG_STATE_HOME`. | Respect du répertoire d’état configuré. |
 | Documentation contradictoire : ancienne barre sur deux rangées, bureau annoncé identique au stock, activation du clavier et consignes de retrait incomplètes. | README restructuré, présentation française, procédures séparées, dépendances et limites explicites; anciennes preuves identifiées comme historiques. |
 
-La CI compile désormais tous les fichiers Python et prévoit les tests sur Python 3.11 et 3.14. Elle n’a pas encore tourné sur GitHub pour ces changements. La licence MIT, l’auteur, l’identifiant et la version 0.2.0 sont conservés. Les modifications locales préexistantes n’ont pas été annulées.
+La CI compile désormais tous les fichiers Python et prévoit les tests sur Python 3.11 et 3.14. Les deux jobs ont réussi sur GitHub : [exécution initiale](https://github.com/varlet99/omarchy-tablet/actions/runs/36375565630). La licence MIT, l’auteur, l’identifiant et la version 0.2.0 sont conservés. Les modifications locales préexistantes n’ont pas été annulées.
 
 ## Vérifications effectuées
 
@@ -41,9 +41,10 @@ Machine inspectée : Surface Pro 4, noyau `6.19.8-arch1-3-surface`, Omarchy `4.0
 
 ## À faire avant la soumission
 
-- [ ] Choisir/créer le compte GitHub et publier le dépôt; attendre la CI sur le commit final.
+- [x] Dépôt public créé sur `varlet99/omarchy-tablet`; CI réussie sur Python 3.11 et 3.14.
 - [x] Vérifier le registre public actuel : aucune entrée `surface.tablet` trouvée. La validation de soumission confirmera la disponibilité, y compris les éventuels identifiants réservés ou retirés.
-- [ ] Sur une session de test, installer le commit publié par `omarchy plugin add`, puis tester mise à jour, désactivation, réactivation, redémarrage du shell et retrait. Vérifier le retour des fenêtres et du service de saisie.
+- [x] Installation publique, commande de mise à jour sans changement, désactivation, réactivation, retrait et réinstallation vérifiés sur le commit `7e542ac2c87917d357d4f277a8c083dff37bbb3e`; voir [preuve](marketplace-install-check.json). L’ancienne installation locale a été sauvegardée automatiquement.
+- [ ] Compléter les essais de redémarrage du shell et de récupération après panne sur une session dédiée.
 - [ ] En mode Automatic, détacher puis rattacher réellement le Type Cover; vérifier Tablet → Desktop et le maintien des choix manuels.
 - [ ] Au doigt, essayer la grille, les favoris, la poignée, le défilement des widgets et les réglages en portrait et paysage.
 - [ ] Essayer le clavier dans les applications utilisées : saisie, masquage, passage entre champs, terminal, changement d’apparence et retour au clavier physique.
