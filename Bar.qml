@@ -494,7 +494,7 @@ Item {
                         Item {
                             id: desktopAnchor
                             width: childrenRect.width
-                            height: bar.rowHeight
+                            height: childrenRect.height
                         }
                         Row { id: desktopAfter; spacing: Style.spacing.sm }
                     }

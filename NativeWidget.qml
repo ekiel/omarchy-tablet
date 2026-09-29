@@ -23,7 +23,7 @@ Item {
     implicitWidth: item && item.visible ? Math.max(host.tablet ? 48 : 0, item.implicitWidth) : 0
     implicitHeight: host.barSize
     width: implicitWidth
-    height: parent && parent.height > 0 ? parent.height : implicitHeight
+    height: implicitHeight
     property bool ready: false
 
     Component.onCompleted: {
@@ -62,6 +62,7 @@ Item {
             activeComponent = comp
             item.width = Qt.binding(() => slot.width)
             item.height = Qt.binding(() => slot.height)
+            item.anchors.centerIn = slot
             inject()
         }
     }
