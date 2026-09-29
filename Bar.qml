@@ -465,7 +465,7 @@ Item {
                     height: bar.rowHeight
                     clip: true
                     interactive: !root.barDragSource && (systemArea.contentWidth > systemArea.width)
-                    contentWidth: Math.max(width, nativeLeft.width + desktopAnchor.width + nativeRight.width + Style.spacing.md * 2)
+                    contentWidth: Math.max(width, nativeLeft.width + centerGroup.width + nativeRight.width + Style.spacing.md * 2)
                     contentHeight: height
                     boundsBehavior: Flickable.StopAtBounds
                     flickableDirection: Flickable.HorizontalFlick
@@ -475,23 +475,34 @@ Item {
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: Style.spacing.sm
                         Row { id: desktopLeft; spacing: Style.spacing.sm }
-                        Row { id: desktopBefore; spacing: Style.spacing.sm }
                     }
-                    Item {
-                        id: desktopAnchor
-                        x: Math.max(nativeLeft.width + Style.spacing.md,
-                            Math.min(bar.width / 2 - systemArea.x - width / 2,
-                                systemArea.contentWidth - nativeRight.width - Style.spacing.md - width))
+                    Row {
+                        id: centerGroup
                         anchors.verticalCenter: parent.verticalCenter
-                        width: childrenRect.width
-                        height: bar.rowHeight
+                        spacing: Style.spacing.sm
+                        x: {
+                            const minX = nativeLeft.width + Style.spacing.md
+                            const maxX = systemArea.contentWidth - nativeRight.width - Style.spacing.md - width
+                            if (desktopAnchor.width > 0) {
+                                const anchorOffset = desktopBefore.width + (desktopBefore.width > 0 ? spacing : 0) + desktopAnchor.width / 2
+                                const targetX = (bar.width / 2 - systemArea.x) - anchorOffset
+                                return Math.max(minX, Math.min(targetX, maxX))
+                            }
+                            return Math.max(minX, Math.min(bar.width / 2 - systemArea.x - width / 2, maxX))
+                        }
+                        Row { id: desktopBefore; spacing: Style.spacing.sm }
+                        Item {
+                            id: desktopAnchor
+                            width: childrenRect.width
+                            height: bar.rowHeight
+                        }
+                        Row { id: desktopAfter; spacing: Style.spacing.sm }
                     }
                     Row {
                         id: nativeRight
                         x: systemArea.contentWidth - width
                         anchors.verticalCenter: parent.verticalCenter
                         spacing: Style.spacing.sm
-                        Row { id: desktopAfter; spacing: Style.spacing.sm }
                         Row { id: desktopRight; spacing: Style.spacing.sm }
                     }
                 }
