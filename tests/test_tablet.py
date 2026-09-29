@@ -86,6 +86,24 @@ class PersistenceTests(unittest.TestCase):
             again.command({"action": "favorite", "value": "Google Photos"})
             self.assertNotIn("Google Photos", again.preferences["favorites"])
 
+    def test_auto_rotate_and_rotation_lock_preferences(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict("os.environ", {"XDG_RUNTIME_DIR": folder}):
+            backend = Backend(Path(folder) / "state")
+            self.assertTrue(backend.preferences["autoRotate"])
+            self.assertFalse(backend.preferences["rotationLocked"])
+            backend.command({"action": "autoRotate", "value": False})
+            backend.command({"action": "rotationLock", "value": True})
+            self.assertFalse(backend.preferences["autoRotate"])
+            self.assertTrue(backend.preferences["rotationLocked"])
+            again = Backend(Path(folder) / "state")
+            self.assertFalse(again.preferences["autoRotate"])
+            self.assertTrue(again.preferences["rotationLocked"])
+            state = again.state()
+            self.assertFalse(state["autoRotate"])
+            self.assertTrue(state["rotationLocked"])
+            again.command({"action": "rotationLock", "value": "toggle"})
+            self.assertFalse(again.preferences["rotationLocked"])
+
     def test_failed_keyboard_start_restores_input_method(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict("os.environ", {"XDG_RUNTIME_DIR": folder}):
             backend = Backend(Path(folder) / "state")

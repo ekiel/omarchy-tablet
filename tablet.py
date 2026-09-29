@@ -24,6 +24,7 @@ from keyboard_theme import KeyboardTheme, STYLES
 DEFAULT_FAVORITES = ["chromium", "org.gnome.Nautilus", "com.github.xournalpp.xournalpp",
                      "libreoffice-writer", "YouTube", "org.gnome.Calculator", "murmure", "localsend"]
 MODES = {"auto", "tablet", "desktop"}
+ORIENTATION_MAP = {"normal": 0, "bottom-up": 2, "right-up": 1, "left-up": 3}
 
 
 def valid_command(value):
@@ -85,7 +86,8 @@ class Backend:
         self.state_dir = Path(state_dir or Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy-tablet")
         self.preferences_path = self.state_dir / "preferences.json"
         self.preferences = {"mode": "auto", "favorites": DEFAULT_FAVORITES.copy(), "layout": "single",
-                            "dictationCommand": ["murmure", "--transcription"], "keyboardStyle": "omarchy", "keyboardActivation": "auto"}
+                            "dictationCommand": ["murmure", "--transcription"], "keyboardStyle": "omarchy", "keyboardActivation": "auto",
+                            "autoRotate": True, "rotationLocked": False}
         if self.preferences_path.exists():
             try:
                 saved = json.loads(self.preferences_path.read_text())
@@ -105,6 +107,10 @@ class Backend:
                 self.preferences["keyboardActivation"] = saved["keyboardActivation"]
             if isinstance(saved.get("favorites"), list):
                 self.preferences["favorites"] = [s for s in saved["favorites"] if isinstance(s, str)]
+            if isinstance(saved.get("autoRotate"), bool):
+                self.preferences["autoRotate"] = saved["autoRotate"]
+            if isinstance(saved.get("rotationLocked"), bool):
+                self.preferences["rotationLocked"] = saved["rotationLocked"]
         self.runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "omarchy-tablet"
         self.runtime.mkdir(mode=0o700, exist_ok=True)
         self.keyboard_theme = KeyboardTheme(self.runtime)
@@ -118,6 +124,12 @@ class Backend:
         self.last_mode = None
         self.retry_after = 0
         self.running = True
+        self.sensor_available = False
+        self.sensor_orientation = "normal"
+        self.current_transform = 0
+        self.internal_monitor = None
+        self._sensor_thread = None
+        self._sensor_loop = None
         from layout import SingleApp
         self.layout = SingleApp(self.runtime / "window-lease.json")
         self.dictation_process = None
@@ -193,6 +205,91 @@ class Backend:
                 if not self.automatic_keyboard():
                     self.restore_keyboard()
 
+    def get_internal_monitor(self):
+        if self.internal_monitor:
+            return self.internal_monitor
+        res = run("hyprctl", "-j", "monitors", check=False)
+        if res.returncode == 0:
+            try:
+                mons = json.loads(res.stdout)
+                for m in mons:
+                    name = m.get("name", "")
+                    if re.match(r"^(eDP|DSI|LVDS)", name):
+                        self.internal_monitor = name
+                        self.current_transform = m.get("transform", 0)
+                        return name
+                if mons:
+                    self.internal_monitor = mons[0]["name"]
+                    self.current_transform = mons[0].get("transform", 0)
+                    return self.internal_monitor
+            except (ValueError, KeyError, TypeError):
+                pass
+        self.internal_monitor = "eDP-1"
+        return "eDP-1"
+
+    def rotate(self, transform):
+        if not isinstance(transform, int) or transform not in {0, 1, 2, 3}:
+            return False
+        monitor = self.get_internal_monitor()
+        if not monitor:
+            return False
+        if self.current_transform == transform:
+            return True
+        res = run("hyprctl", "eval", f'hl.monitor({{output="{monitor}", transform={transform}}})', check=False)
+        if res.returncode == 0:
+            self.current_transform = transform
+            self.layout_dirty = True
+            return True
+        return False
+
+    def on_sensor_orientation(self, orient):
+        self.sensor_orientation = orient
+        if not self.preferences.get("autoRotate", True):
+            return
+        if self.preferences.get("rotationLocked", False):
+            return
+        transform = ORIENTATION_MAP.get(orient)
+        if transform is not None:
+            self.rotate(transform)
+
+    def start_sensor(self):
+        try:
+            from gi.repository import Gio, GLib
+        except ImportError:
+            return
+
+        def run_sensor():
+            try:
+                proxy = Gio.DBusProxy.new_for_bus_sync(
+                    Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None,
+                    "net.hadess.SensorProxy", "/net/hadess/SensorProxy", "net.hadess.SensorProxy", None)
+                has_accel = proxy.get_cached_property("HasAccelerometer")
+                if not (has_accel and has_accel.unpack()):
+                    return
+                proxy.call_sync("ClaimAccelerometer", None, Gio.DBusCallFlags.NONE, -1, None)
+                self.sensor_available = True
+
+                def on_props_changed(proxy, changed_props, invalidated_props):
+                    props = changed_props.unpack()
+                    if "AccelerometerOrientation" in props:
+                        self.on_sensor_orientation(props["AccelerometerOrientation"])
+
+                proxy.connect("g-properties-changed", on_props_changed)
+                curr = proxy.get_cached_property("AccelerometerOrientation")
+                if curr:
+                    self.on_sensor_orientation(curr.unpack())
+
+                loop = GLib.MainLoop()
+                self._sensor_loop = loop
+                loop.run()
+            except Exception:
+                self.sensor_available = False
+
+        import threading
+        t = threading.Thread(target=run_sensor, daemon=True)
+        self._sensor_thread = t
+        t.start()
+
     def _effective_layout(self, tablet):
         """Layout follows the mode: tablets use Single app, desktop uses tiling.
 
@@ -212,6 +309,10 @@ class Backend:
             dictationAvailable=bool(shutil.which(self.preferences["dictationCommand"][0])),
             animations=self.animations,
             wallpaper=wallpaper(),
+            autoRotate=self.preferences.get("autoRotate", True),
+            rotationLocked=self.preferences.get("rotationLocked", False),
+            currentTransform=self.current_transform,
+            sensorAvailable=self.sensor_available,
         )
         return state
 
@@ -286,9 +387,28 @@ class Backend:
                         if attempt == 19:
                             raise
                         time.sleep(0.1)
+        elif action == "autoRotate":
+            val = bool(value)
+            self.preferences["autoRotate"] = val
+            if val and not self.preferences.get("rotationLocked", False):
+                t = ORIENTATION_MAP.get(self.sensor_orientation)
+                if t is not None:
+                    self.rotate(t)
+        elif action == "rotationLock":
+            val = not self.preferences.get("rotationLocked", False) if value == "toggle" else bool(value)
+            self.preferences["rotationLocked"] = val
+            if not val and self.preferences.get("autoRotate", True):
+                t = ORIENTATION_MAP.get(self.sensor_orientation)
+                if t is not None:
+                    self.rotate(t)
+        elif action == "orientation":
+            if isinstance(value, int) and value in {0, 1, 2, 3}:
+                self.rotate(value)
+            elif isinstance(value, str) and value.isdigit() and int(value) in {0, 1, 2, 3}:
+                self.rotate(int(value))
         else:
             raise ValueError("Unknown command")
-        if action in {"mode", "layout", "dictationCommand", "favorite", "keyboardStyle", "keyboardActivation"}:
+        if action in {"mode", "layout", "dictationCommand", "favorite", "keyboardStyle", "keyboardActivation", "autoRotate", "rotationLock", "orientation"}:
             atomic_json(self.preferences_path, self.preferences)
         if action in {"mode", "layout"}:
             self.layout_dirty = True
@@ -351,6 +471,8 @@ class Backend:
 
     def stop(self, *_):
         self.running = False
+        if self._sensor_loop:
+            self._sensor_loop.quit()
 
     def layout_event(self, line):
         """Ignore title churn: Hyprland repeats activewindowv2 for the same ID."""
@@ -383,6 +505,7 @@ class Backend:
         try:
             self.layout.restore()
             self.restore_keyboard()  # recover after a previous shell crash
+            self.start_sensor()
             while self.running:
                 now = time.monotonic()
                 if events is None and now >= next_connect:
