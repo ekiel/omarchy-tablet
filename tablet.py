@@ -256,34 +256,39 @@ class Backend:
         try:
             from gi.repository import Gio, GLib
         except ImportError:
+            self.sensor_available = False
             return
 
         def run_sensor():
-            try:
-                proxy = Gio.DBusProxy.new_for_bus_sync(
-                    Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None,
-                    "net.hadess.SensorProxy", "/net/hadess/SensorProxy", "net.hadess.SensorProxy", None)
-                has_accel = proxy.get_cached_property("HasAccelerometer")
-                if not (has_accel and has_accel.unpack()):
-                    return
-                proxy.call_sync("ClaimAccelerometer", None, Gio.DBusCallFlags.NONE, -1, None)
-                self.sensor_available = True
+            while self.running:
+                try:
+                    proxy = Gio.DBusProxy.new_for_bus_sync(
+                        Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None,
+                        "net.hadess.SensorProxy", "/net/hadess/SensorProxy", "net.hadess.SensorProxy", None)
+                    proxy.call_sync("ClaimAccelerometer", None, Gio.DBusCallFlags.NONE, 3000, None)
+                    self.sensor_available = True
+                    self.sensor_proxy = proxy
+                    self.layout_dirty = True
 
-                def on_props_changed(proxy, changed_props, invalidated_props):
-                    props = changed_props.unpack()
-                    if "AccelerometerOrientation" in props:
-                        self.on_sensor_orientation(props["AccelerometerOrientation"])
+                    def on_props_changed(*_):
+                        try:
+                            c = proxy.get_cached_property("AccelerometerOrientation")
+                            if c:
+                                self.on_sensor_orientation(c.unpack())
+                        except Exception:
+                            pass
 
-                proxy.connect("g-properties-changed", on_props_changed)
-                curr = proxy.get_cached_property("AccelerometerOrientation")
-                if curr:
-                    self.on_sensor_orientation(curr.unpack())
+                    proxy.connect("g-properties-changed", on_props_changed)
+                    curr = proxy.get_cached_property("AccelerometerOrientation")
+                    if curr:
+                        self.on_sensor_orientation(curr.unpack())
 
-                loop = GLib.MainLoop()
-                self._sensor_loop = loop
-                loop.run()
-            except Exception:
-                self.sensor_available = False
+                    loop = GLib.MainLoop()
+                    self._sensor_loop = loop
+                    loop.run()
+                except Exception:
+                    self.sensor_available = False
+                    time.sleep(2)
 
         import threading
         t = threading.Thread(target=run_sensor, daemon=True)
