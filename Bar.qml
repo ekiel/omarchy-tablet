@@ -103,6 +103,11 @@ Item {
         barDragScreen = barDragWindow ? barDragWindow.screen : null
         barDragOffsetX = pressedX
         barDragOffsetY = pressedY
+        var scene = slot.mapToItem(null, pressedX, pressedY)
+        barDragSceneX = scene.x
+        barDragSceneY = scene.y
+        barDragScreenX = scene.x
+        barDragScreenY = scene.y
         captureBarDragGhost(slot)
     }
 
@@ -146,10 +151,18 @@ Item {
 
     function moduleDropAtScene(scenePoint, sourceSlot) {
         var targetWindow = (sourceSlot && sourceSlot.host && sourceSlot.host.barWindow) || barDragWindow
-        if (!targetWindow || !targetWindow.contentItem) return null
+        if (!targetWindow) return null
 
-        var barPoint = targetWindow.contentItem.mapFromItem(null, scenePoint.x, scenePoint.y)
-        if (barPoint.y < -20 || barPoint.y > targetWindow.contentItem.height + 20) {
+        var barY = scenePoint.y
+        try {
+            if (targetWindow.contentItem) {
+                var barPoint = targetWindow.contentItem.mapFromItem(null, scenePoint.x, scenePoint.y)
+                barY = barPoint.y
+            }
+        } catch (e) {
+            barY = scenePoint.y
+        }
+        if (barY < -60 || barY > targetWindow.height + 60) {
             return null
         }
 
@@ -451,6 +464,7 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                     height: bar.rowHeight
                     clip: true
+                    interactive: !root.barDragSource && (systemArea.contentWidth > systemArea.width)
                     contentWidth: Math.max(width, nativeLeft.width + desktopAnchor.width + nativeRight.width + Style.spacing.md * 2)
                     contentHeight: height
                     boundsBehavior: Flickable.StopAtBounds

@@ -23,7 +23,7 @@ Item {
     implicitWidth: item && item.visible ? Math.max(host.tablet ? 48 : 0, item.implicitWidth) : 0
     implicitHeight: host.barSize
     width: implicitWidth
-    height: implicitHeight
+    height: parent && parent.height > 0 ? parent.height : implicitHeight
     property bool ready: false
 
     Component.onCompleted: {
@@ -82,7 +82,7 @@ Item {
         acceptedButtons: Qt.LeftButton
         enabled: slot.visible && slot.width > 0 && slot.height > 0
         propagateComposedEvents: true
-        preventStealing: dragging
+        preventStealing: true
         z: 10
         cursorShape: slot.host && slot.host.moduleClickTargetAt && slot.host.moduleClickTargetAt(slot, mouseX, mouseY) ? Qt.PointingHandCursor : Qt.ArrowCursor
 
@@ -101,7 +101,7 @@ Item {
         }
 
         onPositionChanged: function(mouse) {
-            if (!(mouse.buttons & Qt.LeftButton)) return
+            if (!dragArea.pressed && !(mouse.buttons & Qt.LeftButton)) return
             var distance = Math.abs(mouse.x - pressedX) + Math.abs(mouse.y - pressedY)
             if (distance >= dragThreshold) {
                 if (!dragging) {
