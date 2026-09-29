@@ -535,18 +535,25 @@ Item {
                     { parent: desktopRight, entries: root.rightEntries }
                 ]
                 for (let r = 0; r < rows.length; r++) {
-                    const rowInfo = rows[r]
-                    const rowParent = rowInfo.parent
-                    const list = rowInfo.entries || []
-                    let prev = null
+                    const rowParent = rows[r].parent
+                    const list = rows[r].entries || []
+                    const items = []
                     for (let i = 0; i < list.length; i++) {
                         const id = typeof list[i] === "string" ? list[i] : (list[i] ? list[i].id : "")
                         const widget = activeWidgets[id]
                         if (widget && widget.parent === rowParent) {
-                            if (prev && typeof widget.stackAfter === "function") {
-                                widget.stackAfter(prev)
-                            }
-                            prev = widget
+                            items.push(widget)
+                        }
+                    }
+                    if (items.length > 0) {
+                        for (let i = 0; i < items.length; i++) {
+                            items[i].parent = null
+                        }
+                        for (let i = 0; i < items.length; i++) {
+                            items[i].parent = rowParent
+                        }
+                        if (typeof rowParent.forceLayout === "function") {
+                            rowParent.forceLayout()
                         }
                     }
                 }
