@@ -24,7 +24,7 @@ from keyboard_theme import KeyboardTheme, STYLES
 DEFAULT_FAVORITES = ["chromium", "org.gnome.Nautilus", "com.github.xournalpp.xournalpp",
                      "libreoffice-writer", "YouTube", "org.gnome.Calculator", "murmure", "localsend"]
 MODES = {"auto", "tablet", "desktop"}
-ORIENTATION_MAP = {"normal": 0, "bottom-up": 2, "right-up": 1, "left-up": 3}
+ORIENTATION_MAP = {"normal": 0, "bottom-up": 2, "right-up": 3, "left-up": 1}
 
 
 def valid_command(value):
