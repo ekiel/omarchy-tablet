@@ -137,8 +137,28 @@ class Backend:
         self.next_style_check = 0
         self.next_keyboard_check = 0
         self.layout_dirty = True
+        self.layout_force = False
+        self._touch_initialized = False
         self.last_focus_event = None
         self.dismiss_keyboard_on_focus = False
+        self._wake_r, self._wake_w = os.pipe()
+        os.set_blocking(self._wake_r, False)
+        os.set_blocking(self._wake_w, False)
+
+    def wakeup(self):
+        try:
+            os.write(self._wake_w, b"\x01")
+        except OSError:
+            pass
+
+    def __del__(self):
+        try:
+            if hasattr(self, "_wake_r"):
+                os.close(self._wake_r)
+            if hasattr(self, "_wake_w"):
+                os.close(self._wake_w)
+        except OSError:
+            pass
 
     def active(self, unit):
         return run("systemctl", "--user", "is-active", "--quiet", unit, check=False).returncode == 0
@@ -227,20 +247,56 @@ class Backend:
         self.internal_monitor = "eDP-1"
         return "eDP-1"
 
+    def get_touch_devices(self):
+        res = run("hyprctl", "-j", "devices", check=False)
+        if res.returncode == 0:
+            try:
+                data = json.loads(res.stdout)
+                touch = [d["name"] for d in data.get("touch", []) if isinstance(d, dict) and "name" in d]
+                tablets = [d["name"] for d in data.get("tablets", []) if isinstance(d, dict) and "name" in d]
+                return touch, tablets
+            except (ValueError, KeyError, TypeError):
+                pass
+        return [], []
+
     def rotate(self, transform):
         if not isinstance(transform, int) or transform not in {0, 1, 2, 3}:
             return False
         monitor = self.get_internal_monitor()
         if not monitor:
             return False
-        if self.current_transform == transform:
+        if self.current_transform == transform and self._touch_initialized:
             return True
-        res = run("hyprctl", "eval", f'hl.monitor({{output="{monitor}", transform={transform}}})', check=False)
+
+        scale = 1.6
+        res = run("hyprctl", "-j", "monitors", check=False)
         if res.returncode == 0:
-            self.current_transform = transform
-            self.layout_dirty = True
-            return True
-        return False
+            try:
+                mons = json.loads(res.stdout)
+                for m in mons:
+                    if m.get("name") == monitor and "scale" in m:
+                        scale = m["scale"]
+                        break
+            except (ValueError, KeyError, TypeError):
+                pass
+
+        res = run("hyprctl", "eval", f'hl.monitor({{output="{monitor}", mode="preferred", position="auto", scale={scale}, transform={transform}}})', check=False)
+        if res.returncode != 0:
+            return False
+
+        # Apply touchdevice and tablet rotation matching the monitor transform
+        run("hyprctl", "eval", f'hl.config({{ input = {{ touchdevice = {{ transform = {transform}, output = "{monitor}" }}, tablet = {{ transform = {transform}, output = "{monitor}" }} }} }})', check=False)
+        touch_devs, tablet_devs = self.get_touch_devices()
+        for dev in touch_devs + tablet_devs:
+            dev_escaped = dev.replace('"', '\\"')
+            run("hyprctl", "eval", f'hl.device({{ name = "{dev_escaped}", transform = {transform}, output = "{monitor}" }})', check=False)
+
+        self._touch_initialized = True
+        self.current_transform = transform
+        self.layout_dirty = True
+        self.layout_force = True
+        self.wakeup()
+        return True
 
     def on_sensor_orientation(self, orient):
         self.sensor_orientation = orient
@@ -270,8 +326,12 @@ class Backend:
                     self.sensor_proxy = proxy
                     self.layout_dirty = True
 
-                    def on_props_changed(*_):
+                    def on_props_changed(proxy, changed_props, invalidated_props):
                         try:
+                            props = changed_props.unpack() if changed_props else {}
+                            if "AccelerometerOrientation" in props:
+                                self.on_sensor_orientation(props["AccelerometerOrientation"])
+                                return
                             c = proxy.get_cached_property("AccelerometerOrientation")
                             if c:
                                 self.on_sensor_orientation(c.unpack())
@@ -461,7 +521,12 @@ class Backend:
                 self.keyboard_css_applied = css
         if self.layout_dirty:
             # Keep dirty on failure: a failed dispatch must be retried.
-            self.layout.reconcile(self._effective_layout(state["tablet"]) == "single")
+            force = getattr(self, "layout_force", False)
+            self.layout_force = False
+            if force:
+                self.layout.reconcile(self._effective_layout(state["tablet"]) == "single", force=True)
+            else:
+                self.layout.reconcile(self._effective_layout(state["tablet"]) == "single")
             self.layout_dirty = False
         if time.monotonic() >= self.next_style_check:
             self.next_style_check = time.monotonic() + 30
@@ -478,6 +543,7 @@ class Backend:
         self.running = False
         if self._sensor_loop:
             self._sensor_loop.quit()
+        self.wakeup()
 
     def layout_event(self, line):
         """Ignore title churn: Hyprland repeats activewindowv2 for the same ID."""
@@ -510,6 +576,7 @@ class Backend:
         try:
             self.layout.restore()
             self.restore_keyboard()  # recover after a previous shell crash
+            self.rotate(self.current_transform)
             self.start_sensor()
             while self.running:
                 now = time.monotonic()
@@ -545,7 +612,12 @@ class Backend:
                 timeout = max(0, next_maintenance - time.monotonic())
                 if self.layout_dirty:
                     timeout = min(timeout, max(0, layout_due - time.monotonic()))
-                readable, _, _ = select.select([sys.stdin] + ([events] if events else []), [], [], timeout)
+                readable, _, _ = select.select([sys.stdin, self._wake_r] + ([events] if events else []), [], [], timeout)
+                if self._wake_r in readable:
+                    try:
+                        os.read(self._wake_r, 4096)
+                    except OSError:
+                        pass
                 if events and events in readable:
                     try:
                         chunk = events.recv(65536)
